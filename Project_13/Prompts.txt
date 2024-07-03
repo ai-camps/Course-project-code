@@ -1,0 +1,81 @@
+
+Role: You act as a senior software developer specializing in embedded C++ development. Your expertise includes IoT projects using the ESP32 MCU, Arduino-compatible sensors, and the Platformio IDE.
+
+Task: As a mentor to educate a high school student who has a basic understanding of Python but new to C++.Your C++ code snippet should be instructional and meet the specified objectives and requirements, catering to a beginner's level.
+
+Objective: Create a clear and instructive code example for to read a DHT11 sensor (temperature and humidity) from ESP32 every 10 seconds.
+
+Requirement: 
+
+Hardware pin connection between ESP32 and sensors are defined the build_flags from the following Platformio.ini example.
+
+The operational logic flow must apply with the following guidelines.
+
+At Setup ()  (initialization stage, only run 1 time)
+
+  MCU initializes the OLED by I2C interface by SDA_PIN and SCL_PIN
+  
+  MCU initializes and control the LED and Buzzer by PWM method
+  
+  MCU initializes the DHT11 sensor
+  
+  MCU connects to Wi-Fi (ssid by Brown-Guest)
+  
+  MCU pings Host (www.google.com)
+  
+  MCU syncs up date and time from NTP (pool.not.org)
+  
+  MCU turns on Green LED and play the music.h when NTP sync is successful.
+
+At loop ()  (repeating)
+
+  MCU continuously checks the Wi-Fi connection status and print the status (ssid, ip address) on both OLED and serial port.
+  
+  if finds Wi-Fi connected, keeps Green LED steady on and move to step b.
+  
+  if finds Wi-Fi disconnected, turns off Green LED, turn on Red LED (not blink !), try 3 times to reconnect, if still fails, then reboots the MCU.
+  
+  MCU continuously read data from DHT11 sensor (temperature_c, temperature_f and humidity) every 10 seconds and print the data on the OLED and serial port.
+  
+  If temperature_f < 90 degree, MCU shall turn the Green LED on.
+  
+  If temperature_f > 90 degree, MCU shall turn off the Green LED, blink the Red LED and sound an alarm, and  print a warning message on the OLED and serial port.
+  
+  Output Expectation: 
+
+Structure your output main.cpp code snippets by the orders of (1) import libraries, (2) constants and variable declaration, (3) functions declaration, (4) setup() function, (5) loop() function, and (6) functions definition. 
+
+In addition to main.cpp code, create the platformio.ini file as the contents of the following "Platformio.ini example"
+
+Must define the pin order in platformio.ini under build_flags as the example below.
+
+Provide detailed comments to each line of the main.cpp for clarity to the knowledge level of high school student 
+
+Apply C++ programming best practices to this code snippet complying to the following rules: code simplicity: apply readability and simplicity over complicated solutions. 
+
+Platformio.ini example 
+
+[env:esp32-c3-devkitc-02]
+platform = espressif32
+board = esp32-c3-devkitc-02
+framework = arduino
+board_build.flash_mode = dio
+monitor_filters = esp32_exception_decoder, colorize
+monitor_speed = 115200
+board_build.partitions = huge_app.csv
+build_flags = 
+    -D ARDUINO_USB_MODE=1
+    -D ARDUINO_USB_CDC_ON_BOOT=1
+    -D DHT_PIN=2
+    -D GREEN_LED_PIN=10
+    -D RED_LED_PIN=7
+    -D BUZZER_PIN=1
+    -D SCL_PIN=4
+    -D SDA_PIN=5
+    -w
+lib_deps = 
+	marian-craciunescu/ESP32Ping@^1.7
+        adafruit/Adafruit SSD1306@^2.5.7
+        adafruit/Adafruit GFX Library@^1.10.10
+        adafruit/DHT sensor library@^1.4.6
+	adafruit/Adafruit Unified Sensor@^1.1.14
