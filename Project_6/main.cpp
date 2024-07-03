@@ -1,3 +1,7 @@
+// **********************************
+// * Project 6
+// * Create a music header file to be called and played by main.cpp when Wi-Fi is well connected
+// **********************************
 // * Libraries
 #include <Arduino.h>   // Includes the core Arduino functions for the ESP32
 #include <WiFi.h>      // Includes the WiFi library to connect to WiFi networks
@@ -22,7 +26,6 @@ constexpr unsigned long ALARM_TONE_DURATION_MS = 100;   // Duration of each alar
 constexpr unsigned long ALARM_TOTAL_DURATION_MS = 3000; // Total duration of the alarm
 
 const int greenLedChannel = 0;  // PWM channel for Green LED
-const int redLedChannel = 1;   // PWM channel for Red LED
 const int buzzerChannel = 2;   // PWM channel for Buzzer
 const int pwmFrequency = 5000; // Frequency for PWM
 const int pwmResolution = 8;   // 8-bit resolution (0-255)
@@ -48,7 +51,7 @@ void setup()
   if (!connectToWiFi())
   {
     Serial.println("Failed to connect to WiFi: " + String(ssid));
-    ledcWrite(redLedChannel, 255); // Turn on Red LED
+    ledcWrite(greenLedChannel, 0); // Turn off Green LED
     delay(RESTART_DELAY_MS);       // Wait before restarting
     ESP.restart();                 // Reboot the MCU
   }
@@ -57,7 +60,7 @@ void setup()
   if (!pingHost())
   {
     Serial.println("Failed to ping host: " + String(host));
-    ledcWrite(redLedChannel, 255); // Turn on Red LED
+    ledcWrite(greenLedChannel, 0); // Turn off Green LED
     delay(RESTART_DELAY_MS);       // Wait before restarting
     ESP.restart();                 // Reboot the MCU
   }
@@ -66,7 +69,7 @@ void setup()
   if (!syncNTP())
   {
     Serial.println("Failed to sync NTP: " + String(ntpServer));
-    ledcWrite(redLedChannel, 255); // Turn on Red LED
+    ledcWrite(greenLedChannel, 0); // Turn off Green LED
     delay(RESTART_DELAY_MS);       // Wait before restarting
     ESP.restart();                 // Reboot the MCU
   }
@@ -82,14 +85,12 @@ void loop()
   if (WiFi.status() == WL_CONNECTED)
   {
     ledcWrite(greenLedChannel, 255); // Set Green LED brightness to maximum
-    ledcWrite(redLedChannel, 0);     // Turn off Red LED
     Serial.println("WiFi is connected.");
   }
   else
   {
     Serial.println("WiFi connection lost. Attempting to reconnect...");
     ledcWrite(greenLedChannel, 0); // Turn off Green LED
-    ledcWrite(redLedChannel, 255); // Turn on Red LED
     int retryCount = 0;            // Initialize retry count
     bool reconnected = false;      // Initialize reconnection status
 
@@ -105,7 +106,6 @@ void loop()
       {
         reconnected = true;              // Set reconnection status to true
         ledcWrite(greenLedChannel, 255); // Set Green LED brightness to maximum
-        ledcWrite(redLedChannel, 0);     // Turn off Red LED
         Serial.println("Reconnected to WiFi successfully!");
       }
       else
@@ -117,7 +117,6 @@ void loop()
     if (!reconnected)
     {
       Serial.println("Failed to reconnect to WiFi after 3 attempts.");
-      ledcWrite(redLedChannel, 255); // Turn on Red LED
       delay(RESTART_DELAY_MS);       // Wait before restarting
       ESP.restart();                 // Reboot the MCU
     }
@@ -246,9 +245,6 @@ void initPWM()
   ledcSetup(greenLedChannel, pwmFrequency, pwmResolution);
   ledcAttachPin(GREEN_LED_PIN, greenLedChannel);
 
-  ledcSetup(redLedChannel, pwmFrequency, pwmResolution);
-  ledcAttachPin(RED_LED_PIN, redLedChannel);
-
   // Configure Buzzer PWM functionalities
   ledcSetup(buzzerChannel, pwmFrequency, pwmResolution);
   ledcAttachPin(BUZZER_PIN, buzzerChannel);
@@ -260,14 +256,12 @@ void buzzerAndBlinkAlarm()
 
     while (millis() - startTime < ALARM_TOTAL_DURATION_MS)
     {
-        // Play high frequency and turn on Red LED
+        // Play high frequency
         ledcWriteTone(buzzerChannel, ALARM_HIGH_FREQUENCY);
-        ledcWrite(redLedChannel, 255); // Turn on Red LED
         delay(ALARM_TONE_DURATION_MS);
 
-        // Play low frequency and turn off Red LED
+        // Play low frequency
         ledcWriteTone(buzzerChannel, ALARM_LOW_FREQUENCY);
-        ledcWrite(redLedChannel, 0); // Turn off Red LED
         delay(ALARM_TONE_DURATION_MS);
     }
 
