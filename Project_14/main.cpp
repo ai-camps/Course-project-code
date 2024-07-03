@@ -1,3 +1,8 @@
+// **********************************
+// * Project 14
+// * based from project 13, add a motion/tilt/flame sensor on the MCU, 
+// * read its digital value (High/Low), and print its value on serial and OLED
+// **********************************
 // * Import libraries
 #include <Wire.h>             // Library for I2C communication
 #include <Adafruit_GFX.h>     // Core graphics library
