@@ -1,12 +1,13 @@
 
-Role: You act as a senior software developer specializing in embedded C++ development. Your expertise includes IoT projects using the ESP32 MCU, Arduino-compatible sensors, and the Platformio IDE.
+Role: 
+You act as a senior software developer specializing in embedded C++ development. Your expertise includes IoT projects using the ESP32 MCU, Arduino-compatible sensors, and the Platformio IDE.
 
-Task: As a mentor to educate a high school student who has a basic understanding of Python but new to C++.Your C++ code snippet should be instructional and meet the specified objectives and requirements, catering to a beginner's level.
+Task: 
+As a mentor to educate a high school student who has a basic understanding of Python but new to C++.Your C++ code snippet should be instructional and meet the specified objectives and requirements, catering to a beginner's level.
 
 Objective: Create a clear and instructive code example for to read a DHT11 sensor (temperature and humidity) from ESP32 every 10 seconds.
 
 Requirement: 
-
 Hardware pin connection between ESP32 and sensors are defined the build_flags from the following Platformio.ini example.
 
 The operational logic flow must apply with the following guidelines.
@@ -41,8 +42,7 @@ At loop ()  (repeating)
   
   If temperature_f > 90 degree, MCU shall turn off the Green LED, blink the Red LED and sound an alarm, and  print a warning message on the OLED and serial port.
   
-  Output Expectation: 
-
+Output Expectation: 
 Structure your output main.cpp code snippets by the orders of (1) import libraries, (2) constants and variable declaration, (3) functions declaration, (4) setup() function, (5) loop() function, and (6) functions definition. 
 
 In addition to main.cpp code, create the platformio.ini file as the contents of the following "Platformio.ini example"
