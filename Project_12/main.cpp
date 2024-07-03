@@ -1,3 +1,8 @@
+// **********************************
+// * Project 12
+// * based from project 11, if the temperature_f data exceeds 80F, 
+// * trigger an alarm (LED and Buzzer) and print warning message on the OLED
+// **********************************
 // * Import libraries
 #include <Wire.h>             // Library for I2C communication
 #include <Adafruit_GFX.h>     // Core graphics library
