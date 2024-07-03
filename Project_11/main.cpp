@@ -1,3 +1,7 @@
+// **********************************
+// * Project 11
+// * based from project 10, if the temperature_f data exceeds 80F, trigger an alarm (LED and Buzzer)
+// **********************************
 // * Import libraries
 #include <Arduino.h>          // Arduino core functionality
 #include <DHT.h>              // Library for DHT sensor
