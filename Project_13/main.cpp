@@ -37,20 +37,21 @@ constexpr unsigned long PING_RETRY_DELAY_MS = 500;      // Delay between Ping at
 constexpr unsigned long OLED_INIT_DELAY_MS = 2000;      // Delay to ensure OLED starts correctly
 constexpr unsigned long LOOP_DELAY_MS = 10000;          // Delay for the main loop
 
-constexpr const char *ssid = "Brown-Guest";         // WiFi SSID
-constexpr const char *password = ""; // WiFi Password
-constexpr const char *host = PING_HOST;           // Host to ping
-constexpr const char *ntpServer = NTP_SERVER;     // NTP server
+constexpr const char *ssid = "Brown-Guest";   // WiFi SSID
+constexpr const char *password = "";          // WiFi Password
+constexpr const char *host = PING_HOST;       // Host to ping
+constexpr const char *ntpServer = NTP_SERVER; // NTP server
 
 // * Functions declaration
-void setup();             // Setup function declaration
-void initOLED();          // Function to initialize OLED display
-void initPWM();           // Function to configure PWM functionalities
-void loop();              // Loop function declaration
-void readAndDisplayDHT(); // Function to read, display, and check DHT data
-bool connectToWiFi();     // Connects the ESP32 to the specified WiFi network
-bool pingHost();          // Pings the specified host to check network connectivity
-bool syncNTP();           // Synchronizes the ESP32's time with an NTP (Network Time Protocol) server
+void setup();               // Setup function declaration
+void initOLED();            // Function to initialize OLED display
+void initPWM();             // Function to configure PWM functionalities
+void loop();                // Loop function declaration
+void readAndDisplayDHT();   // Function to read, display, and check DHT data
+bool connectToWiFi();       // Connects the ESP32 to the specified WiFi network
+bool pingHost();            // Pings the specified host to check network connectivity
+bool syncNTP();             // Synchronizes the ESP32's time with an NTP (Network Time Protocol) server
+void buzzerAndBlinkAlarm(); // Function to trigger alarm
 
 // * setup() function
 void setup()
@@ -66,10 +67,10 @@ void setup()
     // Connect to WiFi
     if (!connectToWiFi())
     {
-        Serial.println("Failed to connect to WiFi" + String(ssid));
+        Serial.println("Failed to connect to WiFi: " + String(ssid));
         display.clearDisplay();
         display.setCursor(0, 0);
-        display.println("Failed to connect to WiFi" + String(ssid));
+        display.println("Failed to connect to WiFi: " + String(ssid));
         display.print("ESP32 is rebooting in ");
         display.print(RESTART_DELAY_MS / 1000);
         display.println(" seconds.");
@@ -93,10 +94,10 @@ void setup()
     // Ping Google's DNS server
     if (!pingHost())
     {
-        Serial.println("Failed to ping host" + String(host));
+        Serial.println("Failed to ping host: " + String(host));
         display.clearDisplay();
         display.setCursor(0, 0);
-        display.println("Failed to ping host" + String(host));
+        display.println("Failed to ping host: " + String(host));
         display.print("ESP32 is rebooting in ");
         display.print(RESTART_DELAY_MS / 1000);
         display.println(" seconds.");
@@ -109,10 +110,10 @@ void setup()
     // Synchronize NTP time
     if (!syncNTP())
     {
-        Serial.println("Failed to sync NTP" + String(ntpServer));
+        Serial.println("Failed to sync NTP: " + String(ntpServer));
         display.clearDisplay();
         display.setCursor(0, 0);
-        display.println("Failed to sync NTP" + String(ntpServer));
+        display.println("Failed to sync NTP: " + String(ntpServer));
         display.print("ESP32 is rebooting in ");
         display.print(RESTART_DELAY_MS / 1000);
         display.println(" seconds.");
@@ -322,22 +323,44 @@ void readAndDisplayDHT()
     else
     {
         ledcWrite(greenLedChannel, 0);                   // Turn off green LED
-        ledcWrite(redLedChannel, 255);                   // Turn on red LED
         Serial.println(F("Warning: High Temperature!")); // Print warning to serial port
         display.clearDisplay();
         display.setCursor(0, 0);
         display.println(F("Warning: High Temp!"));
         display.display();
+        buzzerAndBlinkAlarm(); // Trigger alarm if temperature exceeds threshold
     }
+}
+
+// ! Function to trigger alarm
+void buzzerAndBlinkAlarm()
+{
+    unsigned long startTime = millis(); // Record the start time
+
+    while (millis() - startTime < LOOP_DELAY_MS) // Continue the alarm during the loop time
+    {
+        // Play high frequency and turn on Red LED
+        ledcWriteTone(buzzerChannel, ALARM_HIGH_FREQUENCY);
+        ledcWrite(redLedChannel, 255); // Turn on Red LED
+        delay(ALARM_TONE_DURATION_MS);
+
+        // Play low frequency and turn off Red LED
+        ledcWriteTone(buzzerChannel, ALARM_LOW_FREQUENCY);
+        ledcWrite(redLedChannel, 0); // Turn off Red LED
+        delay(ALARM_TONE_DURATION_MS);
+    }
+
+    // Turn off the Buzzer
+    ledcWriteTone(buzzerChannel, 0);
 }
 
 // ! Function to connect to WiFi
 bool connectToWiFi()
 {
-    Serial.println("Connecting to WiFi" + String(ssid));
+    Serial.println("Connecting to WiFi: " + String(ssid));
     display.clearDisplay();
     display.setCursor(0, 0);
-    display.println("Connecting to WiFi" + String(ssid));
+    display.println("Connecting to WiFi: " + String(ssid));
     display.display();
 
     int attempt = 0; // Initialize attempt count
@@ -390,12 +413,10 @@ bool connectToWiFi()
 bool pingHost()
 {
     Serial.print("Pinging host: " + String(host));
-    Serial.print(host);
     Serial.println("...");
     display.clearDisplay();
     display.setCursor(0, 0);
     display.print("Pinging host: " + String(host));
-    display.print(host);
     display.println("...");
     display.display();
 
@@ -433,10 +454,10 @@ bool pingHost()
 // ! Function to synchronize NTP time
 bool syncNTP()
 {
-    Serial.println("Synchronizing NTP " + String(ntpServer));
+    Serial.println("Synchronizing NTP: " + String(ntpServer));
     display.clearDisplay();
     display.setCursor(0, 0);
-    display.println("Synchronizing NTP " + String(ntpServer));
+    display.println("Synchronizing NTP: " + String(ntpServer));
     display.display();
 
     String ntpMessage = "Fetching date and time from NTP server: " + String(ntpServer);
