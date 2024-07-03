@@ -37,8 +37,8 @@ constexpr unsigned long PING_RETRY_DELAY_MS = 500;      // Delay between Ping at
 constexpr unsigned long OLED_INIT_DELAY_MS = 2000;      // Delay to ensure OLED starts correctly
 constexpr unsigned long LOOP_DELAY_MS = 10000;          // Delay for the main loop
 
-constexpr const char *ssid = "your-ssid";         // WiFi SSID
-constexpr const char *password = "your-password"; // WiFi Password
+constexpr const char *ssid = "Brown-Guest";         // WiFi SSID
+constexpr const char *password = ""; // WiFi Password
 constexpr const char *host = PING_HOST;           // Host to ping
 constexpr const char *ntpServer = NTP_SERVER;     // NTP server
 
