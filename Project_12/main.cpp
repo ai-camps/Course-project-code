@@ -18,11 +18,11 @@ const int buzzerChannel = 2;   // PWM channel for Buzzer
 const int pwmFrequency = 5000; // Frequency for PWM
 const int pwmResolution = 8;   // 8-bit resolution (0-255)
 
-constexpr float TEMP_HIGH_THRESHOLD_F = 80.0;           // High temperature threshold in Fahrenheit
-constexpr unsigned long ALARM_HIGH_FREQUENCY = 2000;    // High frequency for the alarm
-constexpr unsigned long ALARM_LOW_FREQUENCY = 500;      // Low frequency for the alarm
-constexpr unsigned long ALARM_TONE_DURATION_MS = 100;   // Duration of each alarm tone
-constexpr unsigned long ALARM_TOTAL_DURATION_MS = 3000; // Total duration of the alarm
+constexpr float TEMP_HIGH_THRESHOLD_F = 80.0;         // High temperature threshold in Fahrenheit
+constexpr unsigned long ALARM_HIGH_FREQUENCY = 2000;  // High frequency for the alarm
+constexpr unsigned long ALARM_LOW_FREQUENCY = 500;    // Low frequency for the alarm
+constexpr unsigned long ALARM_TONE_DURATION_MS = 100; // Duration of each alarm tone
+constexpr unsigned long LOOP_DELAY_MS = 10000;        // Delay for the main loop
 
 // * Functions declaration
 void setup();               // Setup function declaration
@@ -44,8 +44,8 @@ void setup()
 // * loop() function
 void loop()
 {
-    readAndDisplayDHT(); // Read, display, and check DHT data
-    delay(10000);        // Wait for 10 seconds
+    readAndDisplayDHT();  // Read, display, and check DHT data
+    delay(LOOP_DELAY_MS); // Wait for 10 seconds
 }
 
 // * Functions definition
@@ -131,12 +131,12 @@ void readAndDisplayDHT()
     else
     {
         ledcWrite(greenLedChannel, 0);                   // Turn off green LED
-        buzzerAndBlinkAlarm();                           // Trigger alarm if temperature exceeds threshold
         Serial.println(F("Warning: High Temperature!")); // Print warning to serial port
         display.clearDisplay();
         display.setCursor(0, 0);
         display.println(F("Warning: High Temp!"));
         display.display();
+        buzzerAndBlinkAlarm(); // Trigger alarm if temperature exceeds threshold
     }
 }
 
@@ -145,7 +145,7 @@ void buzzerAndBlinkAlarm()
 {
     unsigned long startTime = millis(); // Record the start time
 
-    while (millis() - startTime < ALARM_TOTAL_DURATION_MS)
+    while (millis() - startTime < LOOP_DELAY_MS) // Continue the alarm during the loop time
     {
         // Play high frequency and turn on Red LED
         ledcWriteTone(buzzerChannel, ALARM_HIGH_FREQUENCY);
