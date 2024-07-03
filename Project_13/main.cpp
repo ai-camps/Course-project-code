@@ -1,4 +1,4 @@
-// * Import Libraries
+// * Import libraries
 #include <Wire.h>             // Library for I2C communication
 #include <Adafruit_GFX.h>     // Core graphics library
 #include <Adafruit_SSD1306.h> // Library for SSD1306 OLED display
@@ -16,11 +16,12 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 DHT dht(DHT_PIN, DHT11); // Initialize DHT sensor for DHT11
 
-const int greenLedChannel = 0; // PWM channel for Green LED
-const int redLedChannel = 1;   // PWM channel for Red LED
-const int buzzerChannel = 2;   // PWM channel for Buzzer
-const int pwmFrequency = 5000; // Frequency for PWM
-const int pwmResolution = 8;   // 8-bit resolution (0-255)
+const int greenLedChannel = 0;  // PWM channel for Green LED
+const int redLedChannel = 1;    // PWM channel for Red LED
+const int buzzerChannel = 2;    // PWM channel for Buzzer
+const int pwmFrequency = 5000;  // Frequency for PWM
+const int pwmResolution = 8;    // 8-bit resolution (0-255)
+const int buzzerDutyCycle = 64; // Duty cycle for the buzzer to lower the volume
 
 constexpr float TEMP_HIGH_THRESHOLD_F = 80.0; // High temperature threshold in Fahrenheit
 
@@ -205,7 +206,9 @@ void loop()
 
     // Display default information
     display.clearDisplay();
-    display.setCursor(0, 0);
+    display.setCursor(
+
+        0, 0);
     display.print("SSID: ");
     display.println(WiFi.SSID());
     display.print("IP: ");
@@ -295,9 +298,11 @@ void readAndDisplayDHT()
     Serial.print(F("%  "));
     Serial.print(F("Temperature: "));
     Serial.print(temperature_c);
-    Serial.print(F("°C "));
+    Serial.print((char)176); // ASCII code for degree symbol
+    Serial.print(F("C "));
     Serial.print(temperature_f);
-    Serial.println(F("°F"));
+    Serial.print((char)176); // ASCII code for degree symbol
+    Serial.println(F("F"));
 
     // Print to OLED
     display.clearDisplay();
@@ -307,10 +312,12 @@ void readAndDisplayDHT()
     display.println(F("%"));
     display.print(F("Temp: "));
     display.print(temperature_c);
-    display.println(F(" C"));
+    display.print((char)176); // ASCII code for degree symbol
+    display.println(F("C"));
     display.print(F("Temp: "));
     display.print(temperature_f);
-    display.println(F(" F"));
+    display.print((char)176); // ASCII code for degree symbol
+    display.println(F("F"));
     display.display();
 
     // Check temperature and control LEDs and buzzer
@@ -322,12 +329,24 @@ void readAndDisplayDHT()
     }
     else
     {
-        ledcWrite(greenLedChannel, 0);                   // Turn off green LED
-        Serial.println(F("Warning: High Temperature!")); // Print warning to serial port
+        ledcWrite(greenLedChannel, 0); // Turn off green LED
+        Serial.println(F("Warning!"));
+        Serial.println(F("High Temperature!")); // Print warning to serial port
+        Serial.print(F("Temperature: "));
+        Serial.print(temperature_f);
+        Serial.print((char)176); // ASCII code for degree symbol
+        Serial.println(F("F"));
+
         display.clearDisplay();
         display.setCursor(0, 0);
-        display.println(F("Warning: High Temp!"));
+        display.println(F("Warning!"));
+        display.println(F("High Temp!"));
+        display.print(F("Temp: "));
+        display.print(temperature_f);
+        display.print((char)176); // ASCII code for degree symbol
+        display.println(F("F"));
         display.display();
+
         buzzerAndBlinkAlarm(); // Trigger alarm if temperature exceeds threshold
     }
 }
@@ -341,12 +360,14 @@ void buzzerAndBlinkAlarm()
     {
         // Play high frequency and turn on Red LED
         ledcWriteTone(buzzerChannel, ALARM_HIGH_FREQUENCY);
-        ledcWrite(redLedChannel, 255); // Turn on Red LED
+        ledcWrite(buzzerChannel, buzzerDutyCycle); // Set the duty cycle for lower volume
+        ledcWrite(redLedChannel, 255);             // Turn on Red LED
         delay(ALARM_TONE_DURATION_MS);
 
         // Play low frequency and turn off Red LED
         ledcWriteTone(buzzerChannel, ALARM_LOW_FREQUENCY);
-        ledcWrite(redLedChannel, 0); // Turn off Red LED
+        ledcWrite(buzzerChannel, buzzerDutyCycle); // Set the duty cycle for lower volume
+        ledcWrite(redLedChannel, 0);               // Turn off Red LED
         delay(ALARM_TONE_DURATION_MS);
     }
 
