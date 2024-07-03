@@ -1,3 +1,8 @@
+// **********************************
+// * Project 10
+// * Connect a temperature and humidity sensor (DHT11) on MCU
+// * and read its temperature_c, temperature_f and humidity data every 10 seconds
+// **********************************
 // ! Import libraries
 #include <Arduino.h>          // Arduino core functionality
 #include <Wire.h>             // Library for I2C communication
