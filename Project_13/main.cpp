@@ -1,3 +1,7 @@
+// **********************************
+// * Project 13
+// * based from project 12, add the functions of wifi connection, ping host and NTP sync.
+// **********************************
 // * Import libraries
 #include <Wire.h>             // Library for I2C communication
 #include <Adafruit_GFX.h>     // Core graphics library
