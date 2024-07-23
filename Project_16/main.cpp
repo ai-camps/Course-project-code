@@ -1,719 +1,737 @@
-// **********************************
-// * Project 16
-// * based from project 15, publish sensor data to AWS Cloud
-// **********************************
-// * Import libraries
+#include <Arduino.h>           // Core library for Arduino programming
 #include <Wire.h>              // Library for I2C communication
-#include <Adafruit_GFX.h>      // Core graphics library
-#include <Adafruit_SSD1306.h>  // Library for SSD1306 OLED display
+#include <Adafruit_GFX.h>      // Graphics library for OLED display
+#include <Adafruit_SSD1306.h>  // Driver library for OLED display
 #include <DHT.h>               // Library for DHT sensor
-#include <WiFi.h>              // Library for WiFi
-#include <ESP32Ping.h>         // Library for ping functionality
-#include <time.h>              // Library for NTP synchronization
-#include "music.h"             // Library for music notes
-#include <WiFiClientSecure.h>  // Include the WiFiClientSecure library
-#include "SecureCredentials.h" // Include the secrets file
-#include <PubSubClient.h>      // Include the MQTT client library
-#include <ArduinoJson.h>       // Include the ArduinoJson library
+#include <WiFi.h>              // Library for WiFi functionality
+#include <ESPAsyncWebServer.h> // Library for running asynchronous web server
+#include <ESP32Ping.h>         // Library for pinging a host
+#include <HTTPClient.h>        // Library for HTTP client functionality
+#include <ArduinoJson.h>       // Library for parsing JSON data
+#include <time.h>              // Library for time-related functions
+#include "music.h"             // Custom library for playing music
+#include "webPage.h"           // Custom library for web page content
 
-// * Constants and variable declaration
-#define SCREEN_WIDTH 128                                                  // OLED display width, in pixels
-#define SCREEN_HEIGHT 64                                                  // OLED display height, in pixels
-#define OLED_RESET -1                                                     // Reset pin (not used)
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET); // Create an instance of the SSD1306 display
+// Constants and Variable Declarations
+constexpr int SCREEN_WIDTH = 128;      // OLED display width, in pixels
+constexpr int SCREEN_HEIGHT = 64;      // OLED display height, in pixels
+constexpr int OLED_RESET = -1;         // Reset pin for OLED display, -1 if not used
+constexpr int OLED_I2C_ADDRESS = 0x3C; // I2C address for OLED display
 
-DHT dht(DHT_PIN, DHT11); // Initialize DHT sensor for DHT11
+const int greenLedChannel = 0;  // PWM channel for green LED
+const int redLedChannel = 1;    // PWM channel for red LED
+const int buzzerChannel = 2;    // PWM channel for buzzer
+const int pwmFrequency = 5000;  // PWM frequency for LEDs and buzzer
+const int pwmResolution = 8;    // PWM resolution
+const int buzzerDutyCycle = 64; // Duty cycle for buzzer PWM
 
-const int greenLedChannel = 0;  // PWM channel for Green LED
-const int redLedChannel = 1;    // PWM channel for Red LED
-const int buzzerChannel = 2;    // PWM channel for Buzzer
-const int pwmFrequency = 5000;  // Frequency for PWM
-const int pwmResolution = 8;    // 8-bit resolution (0-255)
-const int buzzerDutyCycle = 64; // Duty cycle for the buzzer to lower the volume
+constexpr float TEMP_HIGH_THRESHOLD_F = 90.0;   // High temperature threshold in Fahrenheit
+constexpr float TEMP_LOW_THRESHOLD_F = 60.0;    // Low temperature threshold in Fahrenheit
+constexpr float HUMIDITY_HIGH_THRESHOLD = 75.0; // High humidity threshold
+constexpr float HUMIDITY_LOW_THRESHOLD = 15.0;  // Low humidity threshold
 
-constexpr float TEMP_HIGH_THRESHOLD_F = 80.0; // High temperature threshold in Fahrenheit
+constexpr unsigned long ALARM_HIGH_FREQUENCY = 2000;    // High frequency for alarm tone
+constexpr unsigned long ALARM_LOW_FREQUENCY = 500;      // Low frequency for alarm tone
+constexpr unsigned long ALARM_TONE_DURATION_MS = 100;   // Duration of each alarm tone in milliseconds
+constexpr unsigned long ALARM_TOTAL_DURATION_MS = 3000; // Total duration of alarm in milliseconds
 
-constexpr unsigned long ALARM_HIGH_FREQUENCY = 2000;    // High frequency for the alarm
-constexpr unsigned long ALARM_LOW_FREQUENCY = 500;      // Low frequency for the alarm
-constexpr unsigned long ALARM_TONE_DURATION_MS = 100;   // Duration of each alarm tone
-constexpr unsigned long ALARM_TOTAL_DURATION_MS = 3000; // Total duration of the alarm
-constexpr unsigned long NTP_SYNC_DELAY_MS = 1000;       // Delay between NTP time sync attempts
-constexpr int maxRetries = 3;                           // Maximum number of retries for WiFi, Ping, and NTP
-constexpr unsigned long RESTART_DELAY_MS = 3000;        // Delay before restarting the ESP32 in milliseconds
-constexpr unsigned long WIFI_RETRY_DELAY_MS = 500;      // Delay between WiFi connection attempts
-constexpr unsigned long WIFI_RETRY_WAIT_MS = 1000;      // Wait time before next WiFi connection attempt
-constexpr unsigned long PING_RETRY_DELAY_MS = 500;      // Delay between Ping attempts
-constexpr unsigned long OLED_INIT_DELAY_MS = 2000;      // Delay to ensure OLED starts correctly
-constexpr unsigned long LOOP_DELAY_MS = 10000;          // Delay for the main loop
+constexpr int REBOOT_DELAY_SECONDS = 10;    // Delay before rebooting in seconds
+constexpr int DISPLAY_INIT_DELAY_MS = 2000; // Delay for initializing display in milliseconds
+constexpr int RETRY_DELAY_MS = 1000;        // Delay between retries in milliseconds
+unsigned long lastUpdate = 0;               // Timestamp of the last update
+const unsigned long updateInterval = 10000; // Interval between updates in milliseconds
 
-constexpr const char *ssid = "Brown-Guest";   // WiFi SSID
-constexpr const char *password = "";          // WiFi Password
-constexpr const char *host = PING_HOST;       // Host to ping
-constexpr const char *ntpServer = NTP_SERVER; // NTP server
+constexpr int MAX_RETRIES = 3;                     // Maximum number of retries for certain operations
+constexpr unsigned long PING_RETRY_DELAY_MS = 500; // Delay between ping retries in milliseconds
 
-// * AWS IoT Core access settings
-WiFiClientSecure net = WiFiClientSecure();              // Create a WiFiClientSecure to handle the MQTT connection
-PubSubClient mqttClient(net);                           // Create a PubSubClient to handle the MQTT connection
-constexpr unsigned long MQTT_RECONNECT_DELAY_MS = 3000; // Delay between reconnect attempts
-String deviceID;                                        // Device ID for the AWS IoT Core
-String AWS_IOT_PUBLISH_TOPIC;                           // MQTT topic to publish messages
+const char *ssid = WIFI_SSID;         // WiFi SSID (network name)
+const char *password = WIFI_PASSWORD; // WiFi password
+const char *hostName = PING_HOST;     // Hostname to ping
+const char *ntpServer = NTP_SERVER;   // NTP server for time synchronization
 
-// * Functions declaration
-void setup();                                                                                                                          // Setup function declaration
-void initOLED();                                                                                                                       // Function to initialize OLED display
-void initPWM();                                                                                                                        // Function to configure PWM functionalities
-void loop();                                                                                                                           // Loop function declaration
-void readAndDisplayDHT();                                                                                                              // Function to read, display, and check DHT data
-bool connectToWiFi();                                                                                                                  // Connects the ESP32 to the specified WiFi network
-bool pingHost();                                                                                                                       // Pings the specified host to check network connectivity
-bool syncNTP();                                                                                                                        // Synchronizes the ESP32's time with an NTP (Network Time Protocol) server
-void buzzerAndBlinkAlarm();                                                                                                            // Function to trigger alarm
-bool readAndDisplayTiltSensor();                                                                                                       // Function to read and display tilt sensor data
-bool readAndDisplayMotionSensor();                                                                                                     // Function to read and display motion sensor data
-bool readAndDisplayFlameSensor();                                                                                                      // Function to read and display flame sensor data
-bool connectAWS();                                                                                                                     // Function to connect to AWS IoT Core
-void mqttPublishMessage(float humidity, float temperatureC, float temperatureF, bool tiltStatus, bool motionStatus, bool flameStatus); // Function to publish MQTT messages
+// Weather API related constants
+const char *weatherApiKey = WEATHER_API_KEY; // API key for weather data
+const char *city = CITY;                     // City for weather data
+const char *city2 = CITY2;                   // Second city for weather data
 
-// * setup() function
+unsigned long lastWeatherUpdate = 0;                            // Timestamp of the last weather update
+unsigned long nextWeatherUpdate = 0;                            // Timestamp of the next weather update
+String weatherDescription, weatherDescription2;                 // Weather descriptions for two cities
+float weatherTempC, weatherTempF, weatherTempC2, weatherTempF2; // Weather temperatures for two cities
+
+// DHT sensor related constants
+constexpr int DHT_TYPE = DHT11;             // Type of DHT sensor
+DHT dht(DHT_PIN, DHT_TYPE);                 // DHT sensor object
+float temperatureC, temperatureF, humidity; // Variables to store sensor data
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET); // OLED display object
+
+AsyncWebServer server(80); // Web server object
+
+bool greenLedState = false; // State of the green LED
+bool redLedState = false;   // State of the red LED
+
+// Function prototypes
+void initPWM();                                                                                                                             // Function to initialize PWM
+bool connectToWiFi();                                                                                                                       // Function to connect to WiFi
+bool pingHost();                                                                                                                            // Function to ping a host
+bool syncNTP();                                                                                                                             // Function to synchronize time with NTP server
+void readDHT(float &temperatureC, float &temperatureF, float &humidity);                                                                    // Function to read data from DHT sensor
+bool isMotionOn();                                                                                                                          // Function to check motion sensor status
+bool isTiltOn();                                                                                                                            // Function to check tilt sensor status
+bool isFlameOn();                                                                                                                           // Function to check flame sensor status
+void triggerAlarm();                                                                                                                        // Function to trigger alarm
+void showDisplay(float temperatureC, float temperatureF, float humidity, bool motionStatus, bool tiltStatus, bool flameStatus, bool alarm); // Function to show data on OLED display
+void showSerial(float temperatureC, float temperatureF, float humidity, bool motionStatus, bool tiltStatus, bool flameStatus, bool alarm);  // Function to show data on serial monitor
+bool validateServer();                                                                                                                      // Function to validate server
+void handleRootRequest(AsyncWebServerRequest *request);                                                                                     // Function to handle root request
+void handleDataRequest(AsyncWebServerRequest *request);                                                                                     // Function to handle data request
+void handleGreenLedRequest(AsyncWebServerRequest *request);                                                                                 // Function to handle green LED request
+void handleRedLedRequest(AsyncWebServerRequest *request);                                                                                   // Function to handle red LED request
+void handleTimeRequest(AsyncWebServerRequest *request);                                                                                     // Function to handle time request                                                                                                                      // Function to connect to AWS
+void fetchWeatherData(const char *city, String &weatherDescription, float &weatherTempC, float &weatherTempF);                              // Function to fetch weather data
+
 void setup()
 {
-    Serial.begin(115200); // Initialize serial communication at 115200 baud rate
+    Serial.begin(115200);                              // Initialize serial communication at 115200 baud rate
+    Serial.println("*******************************"); // Print a separator for clarity
 
-    initOLED(); // Initialize OLED display
-
-    dht.begin(); // Initialize DHT sensor
-
-    initPWM(); // Initialize PWM functionalities
-
-    pinMode(TILT_PIN, INPUT);   // Initialize tilt sensor pin as input
-    pinMode(MOTION_PIN, INPUT); // Initialize motion sensor pin as input
-    pinMode(FLAME_PIN, INPUT);  // Initialize flame sensor pin as input
-
-    deviceID = String(ESP.getEfuseMac(), HEX); // Get the device ID
-    AWS_IOT_PUBLISH_TOPIC = deviceID + "/pub"; // Set the MQTT topic to publish messages
-
-    // ! Connect to WiFi
-    if (!connectToWiFi())
+    Wire.begin(SDA_PIN, SCL_PIN);                               // Initialize I2C communication with specified SDA and SCL pins
+    if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS)) // Initialize the OLED display with the I2C address
     {
-        Serial.println("Failed to connect to WiFi: " + String(ssid)); // Print error message to serial
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("Failed to connect to WiFi: " + String(ssid)); // Print error message to OLED
-        display.print("ESP32 is rebooting in ");
-        display.print(RESTART_DELAY_MS / 1000);
-        display.println(" seconds.");
-        display.display();
-        ledcWrite(redLedChannel, 255); // Turn on Red LED
-        delay(RESTART_DELAY_MS);       // Wait before restarting
-        ESP.restart();                 // Reboot the MCU
+        Serial.println(F("SSD1306 allocation failed")); // Print error message if OLED initialization fails
+        for (;;)
+            ; // Infinite loop to halt execution if display initialization fails
+    }
+    display.display();            // Display initial buffer contents
+    delay(DISPLAY_INIT_DELAY_MS); // Delay to let the display initialize
+    display.clearDisplay();       // Clear the display buffer
+
+    display.setCursor(0, 0);             // Set cursor to the top-left corner
+    display.setTextSize(1);              // Set text size to 1
+    display.setTextColor(SSD1306_WHITE); // Set text color to white
+    display.println("Initializing...");  // Print "Initializing..." message
+    display.display();                   // Update the display with the initialization message
+
+    initPWM(); // Initialize PWM for LEDs and buzzer
+
+    dht.begin(); // Initialize the DHT sensor
+
+    if (!connectToWiFi()) // Attempt to connect to WiFi
+    {
+        Serial.println("Failed to connect to Wi-Fi!");  // Print failure message to serial monitor
+        display.clearDisplay();                         // Clear the display buffer
+        display.setCursor(0, 0);                        // Set cursor to the top-left corner
+        display.println("Failed to connect to Wi-Fi!"); // Display failure message on the OLED
+        display.println("Rebooting in 10 seconds...");  // Display reboot message on the OLED
+        display.display();                              // Update the display with the failure message
+        ledcWrite(redLedChannel, 255);                  // Turn on the red LED to indicate failure
+        delay(REBOOT_DELAY_SECONDS * 1000);             // Wait for 10 seconds
+        ESP.restart();                                  // Restart the ESP32
     }
 
-    // Print the current WiFi SSID, IP address, and RSSI value
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.print("SSID: ");
-    display.println(WiFi.SSID());
-    display.print("IP: ");
-    display.println(WiFi.localIP());
-    display.print("RSSI: ");
-    display.println(WiFi.RSSI());
-    display.display();
+    display.clearDisplay();             // Clear the display buffer
+    display.setCursor(0, 0);            // Set cursor to the top-left corner
+    display.println("Wi-Fi Connected"); // Display Wi-Fi connected message
+    display.print("SSID: ");            // Display SSID label
+    display.println(ssid);              // Display the SSID
+    display.print("IP: ");              // Display IP address label
+    display.println(WiFi.localIP());    // Display the local IP address
+    display.display();                  // Update the display with Wi-Fi connection details
+    delay(DISPLAY_INIT_DELAY_MS);       // Delay to let the user read the display
 
-    // ! Ping Google's DNS server
-    if (!pingHost())
+    if (!pingHost()) // Attempt to ping the host
     {
-        Serial.println("Failed to ping host: " + String(host)); // Print error message to serial
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("Failed to ping host: " + String(host)); // Print error message to OLED
-        display.print("ESP32 is rebooting in ");
-        display.print(RESTART_DELAY_MS / 1000);
-        display.println(" seconds.");
-        display.display();
-        ledcWrite(redLedChannel, 255); // Turn on Red LED
-        delay(RESTART_DELAY_MS);       // Wait before restarting
-        ESP.restart();                 // Reboot the MCU
+        Serial.println("Failed to ping host!");        // Print failure message to serial monitor
+        display.clearDisplay();                        // Clear the display buffer
+        display.setCursor(0, 0);                       // Set cursor to the top-left corner
+        display.println("Failed to ping host!");       // Display failure message on the OLED
+        display.println("Rebooting in 10 seconds..."); // Display reboot message on the OLED
+        display.display();                             // Update the display with the failure message
+        ledcWrite(redLedChannel, 255);                 // Turn on the red LED to indicate failure
+        delay(REBOOT_DELAY_SECONDS * 1000);            // Wait for 10 seconds
+        ESP.restart();                                 // Restart the ESP32
     }
 
-    // ! Synchronize NTP time
-    if (!syncNTP())
+    if (!syncNTP()) // Attempt to synchronize time with NTP server
     {
-        Serial.println("Failed to sync NTP: " + String(ntpServer)); // Print error message to serial
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("Failed to sync NTP: " + String(ntpServer)); // Print error message to OLED
-        display.print("ESP32 is rebooting in ");
-        display.print(RESTART_DELAY_MS / 1000);
-        display.println(" seconds.");
-        display.display();
-        ledcWrite(redLedChannel, 255); // Turn on Red LED
-        delay(RESTART_DELAY_MS);       // Wait before restarting
-        ESP.restart();                 // Reboot the MCU
+        Serial.println("Failed to sync NTP!");         // Print failure message to serial monitor
+        display.clearDisplay();                        // Clear the display buffer
+        display.setCursor(0, 0);                       // Set cursor to the top-left corner
+        display.println("Failed to sync NTP!");        // Display failure message on the OLED
+        display.println("Rebooting in 10 seconds..."); // Display reboot message on the OLED
+        display.display();                             // Update the display with the failure message
+        ledcWrite(redLedChannel, 255);                 // Turn on the red LED to indicate failure
+        delay(REBOOT_DELAY_SECONDS * 1000);            // Wait for 10 seconds
+        ESP.restart();                                 // Restart the ESP32
     }
 
-    // ! Connect to AWS Cloud
-    if (!connectAWS())
+    server.on("/", HTTP_GET, handleRootRequest);             // Define route for root URL
+    server.on("/data", HTTP_GET, handleDataRequest);         // Define route for data request
+    server.on("/greenLed", HTTP_GET, handleGreenLedRequest); // Define route for green LED control
+    server.on("/redLed", HTTP_GET, handleRedLedRequest);     // Define route for red LED control
+    server.on("/time", HTTP_GET, handleTimeRequest);         // Define route for time request
+    server.begin();                                          // Start the web server
+
+    if (validateServer()) // Validate if the server started successfully
     {
-        Serial.println("Failed to connect to AWS Cloud: " + String(AWS_IOT_MQTT_SERVER)); // Print error message to serial
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("Failed to connect to AWS Cloud: " + String(AWS_IOT_MQTT_SERVER)); // Print error message to OLED
-        display.print("ESP32 is rebooting in ");
-        display.print(RESTART_DELAY_MS / 1000);
-        display.println(" seconds.");
-        display.display();
-        ledcWrite(redLedChannel, 255); // Turn on Red LED
-        delay(RESTART_DELAY_MS);       // Wait before restarting
-        ESP.restart();                 // Reboot the ESP32 if AWS connection fails
-    }
-
-    // Play music when NTP sync is successful
-    playMusic(buzzerChannel);
-}
-
-// * loop() function
-void loop()
-{
-    Serial.println("........ Loop iteration started.........."); // Print loop iteration message
-
-    // Check if WiFi is connected
-    if (WiFi.status() == WL_CONNECTED)
-    {
-        ledcWrite(greenLedChannel, 255);      // Set Green LED brightness to maximum
-        ledcWrite(redLedChannel, 0);          // Turn off Red LED
-        Serial.println("WiFi is connected."); // Print message to serial
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("WiFi is connected."); // Print message to OLED
-        display.display();
+        Serial.println("Web server started successfully."); // Print success message to serial monitor
+        display.clearDisplay();                             // Clear the display buffer
+        display.setCursor(0, 0);                            // Set cursor to the top-left corner
+        display.println("Web server started");              // Display server started message on the OLED
+        display.display();                                  // Update the display with the success message
     }
     else
     {
-        Serial.println("WiFi connection lost. Attempting to reconnect..."); // Print error message to serial
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("WiFi connection lost."); // Print error message to OLED
-        display.println("Attempting to reconnect...");
-        display.display();
-        ledcWrite(greenLedChannel, 0); // Turn off Green LED
-        ledcWrite(redLedChannel, 255); // Turn on Red LED
-        int retryCount = 0;            // Initialize retry count
-        bool reconnected = false;      // Initialize reconnection status
+        Serial.println("Web server failed to start."); // Print failure message to serial monitor
+        display.clearDisplay();                        // Clear the display buffer
+        display.setCursor(0, 0);                       // Set cursor to the top-left corner
+        display.println("Web server failed");          // Display server failure message on the OLED
+        display.display();                             // Update the display with the failure message
+    }
 
-        // Try to reconnect to WiFi
-        while (retryCount < maxRetries && !reconnected)
+    fetchWeatherData(city, weatherDescription, weatherTempC, weatherTempF);     // Fetch initial weather data for the first city
+    fetchWeatherData(city2, weatherDescription2, weatherTempC2, weatherTempF2); // Fetch initial weather data for the second city
+
+    display.clearDisplay();            // Clear the display buffer
+    display.setCursor(0, 0);           // Set cursor to the top-left corner
+    display.println("Initialization"); // Display initialization complete message
+    display.println("completed");
+    display.display();            // Update the display with the completion message
+    delay(DISPLAY_INIT_DELAY_MS); // Delay to let the user read the display
+
+    playMusic(buzzerChannel); // Play a sound to indicate initialization is complete
+}
+
+void loop()
+{
+    unsigned long currentTime = millis(); 
+
+    unsigned long nextWeatherUpdate = lastWeatherUpdate + (60 * 60 * 1000); // Calculate next weather update time (1 hour later)
+
+    if (currentTime - lastUpdate >= updateInterval)
+    {
+        Serial.println("*******************************"); 
+
+        if (WiFi.status() != WL_CONNECTED)
         {
-            retryCount++; // Increment retry count
-            Serial.print("Retrying ");
-            Serial.print(retryCount);
-            Serial.print("/");
-            Serial.println(maxRetries);
-            display.clearDisplay();
-            display.setCursor(0, 0);
-            display.print("Retrying ");
-            display.print(retryCount);
-            display.print("/");
-            display.println(maxRetries);
-            display.display();
-            if (connectToWiFi())
+            for (int i = 0; i < 3; i++)
             {
-                reconnected = true;              // Set reconnection status to true
-                ledcWrite(greenLedChannel, 255); // Set Green LED brightness to maximum
-                ledcWrite(redLedChannel, 0);     // Turn off Red LED
-                Serial.println("Reconnected to WiFi successfully!");
-                display.clearDisplay();
-                display.setCursor(0, 0);
-                display.println("Reconnected to WiFi");
-                display.println("successfully!");
-                display.display();
+                if (connectToWiFi())
+                    break;             
+                delay(RETRY_DELAY_MS); 
+            }
+
+            if (WiFi.status() != WL_CONNECTED)
+            {
+                Serial.println("Failed to reconnect to Wi-Fi!");  
+                display.clearDisplay();                           
+                display.setCursor(0, 0);                          
+                display.println("Failed to reconnect to Wi-Fi!"); 
+                display.println("Rebooting in 10 seconds...");    
+                display.display();                                
+                ledcWrite(redLedChannel, 255);                    
+                delay(REBOOT_DELAY_SECONDS * 1000);               
+                ESP.restart();                                    
+            }
+        }
+
+        for (int i = 0; i < 3; i++)
+        {
+            readDHT(temperatureC, temperatureF, humidity); 
+            if (!isnan(temperatureC) && !isnan(temperatureF) && !isnan(humidity))
+            {
+                break; 
+            }
+            delay(RETRY_DELAY_MS); 
+        }
+
+        if (isnan(temperatureC) || isnan(temperatureF) || isnan(humidity))
+        {
+            Serial.println("Failed to read from DHT sensor!");  
+            display.clearDisplay();                             
+            display.setCursor(0, 0);                            
+            display.println("Failed to read from DHT sensor!"); 
+            display.println("Rebooting in 10 seconds...");      
+            display.display();                                  
+            ledcWrite(redLedChannel, 255);                      
+            delay(REBOOT_DELAY_SECONDS * 1000);                 
+            ESP.restart();                                      
+        }
+
+        bool motionStatus = isMotionOn();
+        bool tiltStatus = isTiltOn();
+        bool flameStatus = isFlameOn();
+        bool alarm = false;
+
+        if (temperatureF >= TEMP_LOW_THRESHOLD_F && temperatureF <= TEMP_HIGH_THRESHOLD_F &&
+            humidity >= HUMIDITY_LOW_THRESHOLD && humidity <= HUMIDITY_HIGH_THRESHOLD &&
+            !motionStatus && !tiltStatus && !flameStatus)
+        {
+            ledcWrite(greenLedChannel, 255); 
+            ledcWrite(redLedChannel, 0);     
+            ledcWrite(buzzerChannel, 0);     
+        }
+        else
+        {
+            ledcWrite(greenLedChannel, 0); 
+            triggerAlarm();                
+            alarm = true;                  
+        }                                                    
+
+        showSerial(temperatureC, temperatureF, humidity, motionStatus, tiltStatus, flameStatus, alarm);  
+        showDisplay(temperatureC, temperatureF, humidity, motionStatus, tiltStatus, flameStatus, alarm); 
+
+        if (currentTime - lastWeatherUpdate >= 3600000)
+        {
+            fetchWeatherData(city, weatherDescription, weatherTempC, weatherTempF);     
+            fetchWeatherData(city2, weatherDescription2, weatherTempC2, weatherTempF2); 
+            lastWeatherUpdate = currentTime;
+        }
+
+        lastUpdate = currentTime; 
+    }
+}
+
+
+void initPWM()
+{
+    ledcSetup(redLedChannel, pwmFrequency, pwmResolution); // Initialize PWM for red LED
+    ledcAttachPin(RED_LED_PIN, redLedChannel);             // Attach red LED to PWM channel
+
+    ledcSetup(greenLedChannel, pwmFrequency, pwmResolution); // Initialize PWM for green LED
+    ledcAttachPin(GREEN_LED_PIN, greenLedChannel);           // Attach green LED to PWM channel
+
+    ledcSetup(buzzerChannel, pwmFrequency, pwmResolution); // Initialize PWM for buzzer
+    ledcAttachPin(BUZZER_PIN, buzzerChannel);              // Attach buzzer to PWM channel
+}
+
+bool connectToWiFi()
+{
+    Serial.print("Connecting to Wi-Fi: ");  // Print connecting message
+    Serial.println(ssid);                   // Print the SSID
+    display.clearDisplay();                 // Clear the display buffer
+    display.setCursor(0, 0);                // Set cursor to the top-left corner
+    display.setTextSize(1);                 // Set text size to 1
+    display.setTextColor(SSD1306_WHITE);    // Set text color to white
+    display.print("Connecting to Wi-Fi: "); // Display connecting message
+    display.println(ssid);                  // Display the SSID
+    display.display();                      // Update the display with the connecting message
+
+    WiFi.begin(ssid, password);                           // Begin WiFi connection with SSID and password
+    int retries = 0;                                      // Initialize retry counter
+    while (WiFi.status() != WL_CONNECTED && retries < 10) // Retry until connected or max retries reached
+    {
+        delay(RETRY_DELAY_MS); // Delay between retries
+        Serial.print(".");     // Print dot for each retry
+        display.print(".");    // Display dot for each retry
+        display.display();     // Update the display with the dots
+        retries++;             // Increment retry counter
+    }
+
+    if (WiFi.status() == WL_CONNECTED) // If connected to WiFi
+    {
+        Serial.println("\nWi-Fi connected."); // Print success message
+        display.clearDisplay();               // Clear the display buffer
+        display.setCursor(0, 0);              // Set cursor to the top-left corner
+        display.println("Wi-Fi connected.");  // Display success message
+        display.display();                    // Update the display with the success message
+        return true;                          // Return true to indicate success
+    }
+
+    Serial.println("\nWi-Fi connection failed."); // Print failure message
+    display.clearDisplay();                       // Clear the display buffer
+    display.setCursor(0, 0);                      // Set cursor to the top-left corner
+    display.println("Wi-Fi connection failed.");  // Display failure message
+    display.display();                            // Update the display with the failure message
+    return false;                                 // Return false to indicate failure
+}
+
+bool pingHost()
+{
+    Serial.print("Pinging host: ");      // Print pinging message
+    Serial.println(hostName);            // Print the host name
+    display.clearDisplay();              // Clear the display buffer
+    display.setCursor(0, 0);             // Set cursor to the top-left corner
+    display.setTextSize(1);              // Set text size to 1
+    display.setTextColor(SSD1306_WHITE); // Set text color to white
+    display.print("Pinging host: ");     // Display pinging message
+    display.println(hostName);           // Display the host name
+    display.display();                   // Update the display with the pinging message
+
+    int retries = 0;                                      // Initialize retry counter
+    while (!Ping.ping(hostName) && retries < MAX_RETRIES) // Retry until ping successful or max retries reached
+    {
+        delay(PING_RETRY_DELAY_MS); // Delay between retries
+        Serial.print(".");          // Print dot for each retry
+        display.print(".");         // Display dot for each retry
+        display.display();          // Update the display with the dots
+        retries++;                  // Increment retry counter
+    }
+
+    if (Ping.ping(hostName)) // If ping successful
+    {
+        Serial.println("\nPing successful."); // Print success message
+        display.clearDisplay();               // Clear the display buffer
+        display.setCursor(0, 0);              // Set cursor to the top-left corner
+        display.print("Ping successful:\n");  // Display success message
+        display.println(hostName);            // Display the host name
+        display.display();                    // Update the display with the success message
+        return true;                          // Return true to indicate success
+    }
+
+    Serial.println("\nPing failed.");   // Print failure message
+    display.clearDisplay();             // Clear the display buffer
+    display.setCursor(0, 0);            // Set cursor to the top-left corner
+    display.print("Ping failed to:\n"); // Display failure message
+    display.println(hostName);          // Display the host name
+    display.display();                  // Update the display with the failure message
+    return false;                       // Return false to indicate failure
+}
+
+bool syncNTP()
+{
+    Serial.print("Syncing NTP with server: "); // Print syncing message
+    Serial.println(ntpServer);                 // Print the NTP server
+    display.clearDisplay();                    // Clear the display buffer
+    display.setCursor(0, 0);                   // Set cursor to the top-left corner
+    display.setTextSize(1);                    // Set text size to 1
+    display.setTextColor(SSD1306_WHITE);       // Set text color to white
+    display.print("Syncing NTP with:\n");      // Display syncing message
+    display.println(ntpServer);                // Display the NTP server
+    display.display();                         // Update the display with the syncing message
+
+    configTime(GMT_OFFSET_SEC, DST_OFFSET_SEC, ntpServer); // Configure time settings with NTP server
+    struct tm timeinfo;                                    // Structure to hold time information
+    int retries = 0;                                       // Initialize retry counter
+
+    while (!getLocalTime(&timeinfo) && retries < 10) // Retry until time synced or max retries reached
+    {
+        delay(RETRY_DELAY_MS); // Delay between retries
+        Serial.print(".");     // Print dot for each retry
+        display.print(".");    // Display dot for each retry
+        display.display();     // Update the display with the dots
+        retries++;             // Increment retry counter
+    }
+
+    if (getLocalTime(&timeinfo)) // If time synced successfully
+    {
+        Serial.println("\nNTP sync successful.");     // Print success message
+        display.clearDisplay();                       // Clear the display buffer
+        display.setCursor(0, 0);                      // Set cursor to the top-left corner
+        display.print("NTP sync successful\nwith: "); // Display success message
+        display.println(ntpServer);                   // Display the NTP server
+        display.display();                            // Update the display with the success message
+        return true;                                  // Return true to indicate success
+    }
+
+    Serial.println("\nNTP sync failed.");     // Print failure message
+    display.clearDisplay();                   // Clear the display buffer
+    display.setCursor(0, 0);                  // Set cursor to the top-left corner
+    display.print("NTP sync failed with:\n"); // Display failure message
+    display.println(ntpServer);               // Display the NTP server
+    display.display();                        // Update the display with the failure message
+    return false;                             // Return false to indicate failure
+}
+
+void readDHT(float &temperatureC, float &temperatureF, float &humidity)
+{
+    humidity = dht.readHumidity();            // Read humidity from DHT sensor
+    temperatureC = dht.readTemperature();     // Read temperature in Celsius from DHT sensor
+    temperatureF = dht.readTemperature(true); // Read temperature in Fahrenheit from DHT sensor
+}
+
+bool isMotionOn()
+{
+    return digitalRead(MOTION_PIN) == HIGH; // Return true if motion sensor detects motion
+}
+
+bool isTiltOn()
+{
+    return digitalRead(TILT_PIN) == HIGH; // Return true if tilt sensor detects tilt
+}
+
+bool isFlameOn()
+{
+    return digitalRead(FLAME_PIN) == LOW; // Return true if flame sensor detects flame
+}
+
+void triggerAlarm()
+{
+    unsigned long startTime = millis(); // Get the current time
+
+    while (millis() - startTime < ALARM_TOTAL_DURATION_MS) // Loop until alarm duration is reached
+    {
+        ledcWrite(redLedChannel, 255);                      // Turn on the red LED
+        ledcWrite(buzzerChannel, buzzerDutyCycle);          // Turn on the buzzer
+        ledcWriteTone(buzzerChannel, ALARM_HIGH_FREQUENCY); // Set buzzer tone to high frequency
+        delay(ALARM_TONE_DURATION_MS);                      // Delay for tone duration
+        ledcWrite(redLedChannel, 0);                        // Turn off the red LED
+        ledcWrite(buzzerChannel, buzzerDutyCycle);          // Keep buzzer on
+        ledcWriteTone(buzzerChannel, ALARM_LOW_FREQUENCY);  // Set buzzer tone to low frequency
+        delay(ALARM_TONE_DURATION_MS);                      // Delay for tone duration
+    }
+    ledcWriteTone(buzzerChannel, 0); // Turn off the buzzer tone
+}
+
+void showDisplay(float temperatureC, float temperatureF, float humidity, bool motionStatus, bool tiltStatus, bool flameStatus, bool alarm)
+{
+    display.clearDisplay();              // Clear the display buffer
+    display.setCursor(0, 0);             // Set cursor to the top-left corner
+    display.setTextSize(1);              // Set text size to 1
+    display.setTextColor(SSD1306_WHITE); // Set text color to white
+
+    struct tm timeinfo;          // Structure to hold time information
+    if (getLocalTime(&timeinfo)) // Get local time
+    {
+        char timeString[30];                                                      // Buffer to hold formatted time
+        strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo); // Format time as string
+        display.println(timeString);                                              // Display the time
+    }
+    else
+    {
+        display.println("Time not set"); // Display message if time not set
+    }
+
+    display.printf("Temp_C: %.2f C\nTemp_F: %.2f F\nHumidity: %.2f %%", temperatureC, temperatureF, humidity); // Display temperature and humidity
+    display.printf("\nMotion: %s\nTilt: %s\nFlame: %s",
+                   motionStatus ? "ON" : "OFF", // Display motion status
+                   tiltStatus ? "ON" : "OFF",   // Display tilt status
+                   flameStatus ? "ON" : "OFF"); // Display flame status
+    if (alarm)
+    {
+        display.println("\nWARNING: Alarm !!!"); // Display alarm warning if alarm is triggered
+    }
+
+    display.printf("\nWeather: %s\nTemp_C: %.2f C\nTemp_F: %.2f F",
+                   weatherDescription.c_str(), weatherTempC, weatherTempF); // Display weather data for the first city
+
+    display.printf("\nWeather2: %s\nTemp_C: %.2f C\nTemp_F: %.2f F",
+                   weatherDescription2.c_str(), weatherTempC2, weatherTempF2); // Display weather data for the second city
+
+    display.display(); // Update the OLED display with the new data
+}
+
+void showSerial(float temperatureC, float temperatureF, float humidity, bool motionStatus, bool tiltStatus, bool flameStatus, bool alarm)
+{
+    struct tm timeinfo;          // Structure to hold time information
+    if (getLocalTime(&timeinfo)) // Get local time
+    {
+        char timeString[30];                                                      // Buffer to hold formatted time
+        strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo); // Format time as string
+        Serial.printf("Date and time: %s\n", timeString);                         // Print the time to the serial monitor
+    }
+    else
+    {
+        Serial.println("Date and time: Time not set"); // Print message if time not set
+    }
+
+    Serial.printf("Local Weather: %s\n", weatherDescription.c_str()); // Print weather description for the first city
+    Serial.printf("Weather Temp_C: %.2f C\n", weatherTempC);          // Print weather temperature in Celsius for the first city
+    Serial.printf("Weather Temp_F: %.2f F\n", weatherTempF);          // Print weather temperature in Fahrenheit for the first city
+
+    Serial.printf("Weather2: %s\n", weatherDescription2.c_str()); // Print weather description for the second city
+    Serial.printf("Weather Temp2_C: %.2f C\n", weatherTempC2);    // Print weather temperature in Celsius for the second city
+    Serial.printf("Weather Temp2_F: %.2f F\n", weatherTempF2);    // Print weather temperature in Fahrenheit for the second city
+
+    Serial.printf("Sensor Temp_C: %.2f C\n", temperatureC);               // Print DHT sensor temperature in Celsius
+    Serial.printf("Sensor Temp_F: %.2f F\n", temperatureF);               // Print DHT sensor temperature in Fahrenheit
+    Serial.printf("Sensor Humidity: %.2f %%\n", humidity);                // Print DHT sensor humidity
+    Serial.printf("Motion detection: %s\n", motionStatus ? "ON" : "OFF"); // Print motion sensor status
+    Serial.printf("Tilt detection: %s\n", tiltStatus ? "ON" : "OFF");     // Print tilt sensor status
+    Serial.printf("Flame detection: %s\n", flameStatus ? "ON" : "OFF");   // Print flame sensor status
+
+    Serial.printf("SSID: %s\n", ssid);                                    // Print WiFi SSID
+    Serial.printf("IP Address: %s\n", WiFi.localIP().toString().c_str()); // Print local IP address
+
+    if (alarm)
+    {
+        Serial.println("WARNING: Alarm !!!"); // Print alarm warning if alarm is triggered
+    }
+}
+
+bool validateServer()
+{
+    HTTPClient http;                                          // Create HTTP client object
+    String url = "http://" + WiFi.localIP().toString() + "/"; // Construct URL for local server
+    http.begin(url);                                          // Initialize HTTP client with the URL
+    int httpCode = http.GET();                                // Send GET request
+
+    if (httpCode > 0) // Check if the request was successful
+    {
+        http.end();  // End HTTP connection
+        return true; // Return true to indicate success
+    }
+    else
+    {
+        http.end();   // End HTTP connection
+        return false; // Return false to indicate failure
+    }
+}
+
+void handleRootRequest(AsyncWebServerRequest *request)
+{
+    request->send_P(200, "text/html", dashboardHTML); // Send HTML content for the root URL
+}
+
+void handleDataRequest(AsyncWebServerRequest *request)
+{
+    struct tm timeinfo;
+    char timeString[30] = "Time not set";
+    char nextWeatherUpdateTimeString[30] = "Not set";
+
+    if (getLocalTime(&timeinfo))
+    {
+        strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    }
+
+    if (nextWeatherUpdate != 0)
+    {
+        struct tm nextWeatherTimeInfo;
+        time_t nextUpdateTime = (time_t)nextWeatherUpdate;
+        localtime_r(&nextUpdateTime, &nextWeatherTimeInfo);
+        strftime(nextWeatherUpdateTimeString, sizeof(nextWeatherUpdateTimeString), "%Y-%m-%d %H:%M:%S", &nextWeatherTimeInfo);
+    }
+
+    String json = "{";
+    json += "\"currentDateTime\":\"" + String(timeString) + "\",";
+    json += "\"wifiSSID\":\"" + String(WiFi.SSID()) + "\",";
+    json += "\"ipAddress\":\"" + String(WiFi.localIP().toString()) + "\",";
+    json += "\"city\":\"" + String(city) + "\",";
+    json += "\"temperatureC\":" + String(temperatureC, 2) + ",";
+    json += "\"temperatureF\":" + String(temperatureF, 2) + ",";
+    json += "\"humidity\":" + String(humidity, 2) + ",";
+    json += "\"motion\":" + String(isMotionOn() ? "true" : "false") + ",";
+    json += "\"tilt\":" + String(isTiltOn() ? "true" : "false") + ",";
+    json += "\"flame\":" + String(isFlameOn() ? "true" : "false") + ",";
+    json += "\"weatherDescription\":\"" + weatherDescription + "\",";
+    json += "\"weatherTempC\":" + String(weatherTempC, 2) + ",";
+    json += "\"weatherTempF\":" + String(weatherTempF, 2) + ",";
+    json += "\"city2\":\"" + String(city2) + "\",";
+    json += "\"weatherDescription2\":\"" + weatherDescription2 + "\",";
+    json += "\"weatherTempC2\":" + String(weatherTempC2, 2) + ",";
+    json += "\"weatherTempF2\":" + String(weatherTempF2, 2) + ",";
+    json += "\"nextWeatherUpdate\":\"" + String(nextWeatherUpdateTimeString) + "\"";
+    json += "}";
+
+    Serial.println(json);  // Debug: Print JSON data to serial monitor
+
+    request->send(200, "application/json", json);
+}
+
+
+
+void handleGreenLedRequest(AsyncWebServerRequest *request)
+{
+    if (request->hasParam("state")) // Check if state parameter is present
+    {
+        String state = request->getParam("state")->value(); // Get the state parameter value
+        if (state == "1")                                   // If state is "1"
+        {
+            ledcWrite(greenLedChannel, 255); // Turn on the green LED
+            greenLedState = true;            // Set green LED state to true
+        }
+        else // If state is not "1"
+        {
+            ledcWrite(greenLedChannel, 0); // Turn off the green LED
+            greenLedState = false;         // Set green LED state to false
+        }
+    }
+    request->send(200, "text/plain", greenLedState ? "Green LED is ON" : "Green LED is OFF"); // Send response with green LED state
+}
+
+void handleRedLedRequest(AsyncWebServerRequest *request)
+{
+    if (request->hasParam("state")) // Check if state parameter is present
+    {
+        String state = request->getParam("state")->value(); // Get the state parameter value
+        if (state == "1")                                   // If state is "1"
+        {
+            ledcWrite(redLedChannel, 255); // Turn on the red LED
+            redLedState = true;            // Set red LED state to true
+        }
+        else // If state is not "1"
+        {
+            ledcWrite(redLedChannel, 0); // Turn off the red LED
+            redLedState = false;         // Set red LED state to false
+        }
+    }
+    request->send(200, "text/plain", redLedState ? "Red LED is ON" : "Red LED is OFF"); // Send response with red LED state
+}
+
+void handleTimeRequest(AsyncWebServerRequest *request)
+{
+    struct tm timeinfo;                   // Structure to hold time information
+    char timeString[30] = "Time not set"; // Buffer to hold formatted time
+    if (getLocalTime(&timeinfo))          // Get local time
+    {
+        strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo); // Format time as string
+    }
+    String json = "{\"currentDateTime\":\"" + String(timeString) + "\"}"; // Create JSON response with current date and time
+    request->send(200, "application/json", json);                         // Send JSON response
+}
+
+void fetchWeatherData(const char *city, String &weatherDescription, float &weatherTempC, float &weatherTempF)
+{
+    bool weatherFetchSuccess = false; // Initialize weather fetch success flag
+
+    if (WiFi.status() == WL_CONNECTED) // Check if WiFi is connected
+    {
+        HTTPClient http;                                                                                                                         // Create HTTP client object
+        String weatherUrl = "http://api.openweathermap.org/data/2.5/weather?q=" + String(city) + "&units=metric&appid=" + String(weatherApiKey); // Construct URL for weather API
+        http.begin(weatherUrl);                                                                                                                  // Initialize HTTP client with the URL
+
+        int httpCode = http.GET(); // Send GET request
+        if (httpCode > 0)          // Check if the request was successful
+        {
+            String payload = http.getString(); // Get the response payload
+            DynamicJsonDocument doc(1024);     // Create JSON document
+            deserializeJson(doc, payload);     // Parse JSON payload
+
+            if (doc["weather"].isNull() || doc["main"].isNull()) // Check if JSON data is valid
+            {
+                Serial.println("Invalid weather data received."); // Print error message
+                weatherDescription = "null";                      // Set weather description to null
+                weatherTempC = 0.0;                               // Set weather temperature in Celsius to 0
+                weatherTempF = 0.0;                               // Set weather temperature in Fahrenheit to 0
             }
             else
             {
-                delay(WIFI_RETRY_WAIT_MS); // Wait before next attempt
+                weatherDescription = doc["weather"][0]["description"].as<String>(); // Get weather description
+                weatherTempC = doc["main"]["temp"].as<float>();                     // Get weather temperature in Celsius
+                weatherTempF = weatherTempC * 9.0 / 5.0 + 32.0;                     // Convert Celsius to Fahrenheit
+                weatherFetchSuccess = true;                                         // Set weather fetch success flag to true
+
+                time_t now;                                   // Variable to hold current time
+                time(&now);                                   // Get current time
+                lastWeatherUpdate = now;                      // Update the last weather update time
+                nextWeatherUpdate = lastWeatherUpdate + 3600; // Set the next weather update time (1 hour later)
             }
         }
-
-        if (!reconnected)
-        {
-            Serial.println("Failed to reconnect to WiFi after 3 attempts."); // Print error message to serial
-            display.clearDisplay();
-            display.setCursor(0, 0);
-            display.println("Failed to reconnect to WiFi."); // Print error message to OLED
-            display.print("ESP32 is rebooting in ");
-            display.print(RESTART_DELAY_MS / 1000);
-            display.println(" seconds.");
-            display.display();
-            ledcWrite(redLedChannel, 255); // Turn on Red LED
-            delay(RESTART_DELAY_MS);       // Wait before restarting
-            ESP.restart();                 // Reboot the MCU
-        }
-    }
-
-    // Display default information
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.print("SSID: ");
-    display.println(WiFi.SSID());
-    display.print("IP: ");
-    display.println(WiFi.localIP());
-    display.print("RSSI: ");
-    display.println(WiFi.RSSI());
-
-    // Print Date and Time
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo))
-    {
-        char timeStr[64];
-        strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
-        display.println(timeStr); // Display formatted time on OLED
-    }
-    else
-    {
-        display.println("Time: N/A"); // Display "Time: N/A" if time is not available
-    }
-
-    // Print LED status
-    display.print("Green LED: ");
-    display.println(ledcRead(greenLedChannel) ? "On" : "Off");
-    display.print("Red LED: ");
-    display.println(ledcRead(redLedChannel) ? "On" : "Off");
-
-    display.display();
-
-    readAndDisplayDHT();                              // Read, display, and check DHT data
-    bool tiltStatus = readAndDisplayTiltSensor();     // Read and display tilt sensor data
-    bool motionStatus = readAndDisplayMotionSensor(); // Read and display motion sensor data
-    bool flameStatus = readAndDisplayFlameSensor();   // Read and display flame sensor data
-
-    Serial.print("Tilt Status: ");
-    Serial.println(tiltStatus ? "Tilted" : "Not Tilted");
-    Serial.print("Motion Status: ");
-    Serial.println(motionStatus ? "Motion Detected" : "No Motion");
-    Serial.print("Flame Status: ");
-    Serial.println(flameStatus ? "Flame Detected" : "No Flame");
-
-    // Publish sensor data to AWS IoT Core
-    mqttPublishMessage(dht.readHumidity(), dht.readTemperature(), dht.readTemperature(true), tiltStatus, motionStatus, flameStatus);
-
-    delay(LOOP_DELAY_MS); // Delay before next loop iteration
-}
-
-// * Functions definition
-
-// ! Function to initialize OLED display
-void initOLED()
-{
-    Wire.begin(SDA_PIN, SCL_PIN); // Initialize I2C communication with given SDA and SCL pins
-    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
-    { // Address 0x3C for 128x64
-        Serial.println(F("SSD1306 allocation failed"));
-        for (;;)
-            ; // Don't proceed, loop forever
-    }
-    delay(OLED_INIT_DELAY_MS); // Small delay to ensure OLED starts correctly
-    display.clearDisplay();
-    display.setTextSize(1);              // Set text size
-    display.setTextColor(SSD1306_WHITE); // Set text color
-    display.setCursor(0, 0);             // Set cursor position
-    display.println(F("Initializing..."));
-    display.display();
-}
-
-// ! Function to configure PWM functionalities
-void initPWM()
-{
-    // Configure LED PWM functionalities
-    ledcSetup(greenLedChannel, pwmFrequency, pwmResolution);
-    ledcAttachPin(GREEN_LED_PIN, greenLedChannel);
-
-    ledcSetup(redLedChannel, pwmFrequency, pwmResolution);
-    ledcAttachPin(RED_LED_PIN, redLedChannel);
-
-    // Configure Buzzer PWM functionalities
-    ledcSetup(buzzerChannel, pwmFrequency, pwmResolution);
-    ledcAttachPin(BUZZER_PIN, buzzerChannel);
-}
-
-// ! Function to connect to WiFi
-bool connectToWiFi()
-{
-    Serial.println("Connecting to WiFi: " + String(ssid)); // Print message to serial
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("Connecting to WiFi: " + String(ssid)); // Print message to OLED
-    display.display();
-
-    int attempt = 0; // Initialize attempt count
-    while (attempt < maxRetries)
-    {
-        attempt++;                  // Increment attempt count
-        WiFi.begin(ssid, password); // Start WiFi connection with given SSID and password
-        int retries = 0;            // Initialize retries count
-        while (WiFi.status() != WL_CONNECTED && retries < maxRetries)
-        {                               // Check if WiFi is not connected
-            delay(WIFI_RETRY_DELAY_MS); // Wait before next check
-            Serial.print(".");
-            display.print(".");
-            display.display();
-            retries++; // Increment retries count
-        }
-
-        if (WiFi.status() == WL_CONNECTED)
-        {
-            Serial.println("");                                // Print new line for readability
-            Serial.println("WiFi is connected successfully."); // Print message to serial
-            display.clearDisplay();
-            display.setCursor(0, 0);
-            display.println("WiFi is connected successfully."); // Print message to OLED
-            display.display();
-            return true; // Return true if connected
-        }
         else
         {
-            Serial.print("WiFi connection attempt failed. Retrying ");
-            Serial.print(attempt);
-            Serial.print("/");
-            Serial.println(maxRetries);
-            display.clearDisplay();
-            display.setCursor(0, 0);
-            display.print("WiFi connection attempt failed. Retrying ");
-            display.print(attempt);
-            display.print("/");
-            display.println(maxRetries);
-            display.display();
-            WiFi.disconnect();         // Disconnect from WiFi
-            delay(WIFI_RETRY_WAIT_MS); // Wait before next attempt
+            Serial.println("Error fetching weather data"); // Print error message
+            weatherDescription = "null";                   // Set weather description to null
+            weatherTempC = 0.0;                            // Set weather temperature in Celsius to 0
+            weatherTempF = 0.0;                            // Set weather temperature in Fahrenheit to 0
         }
-    }
-
-    return false; // If all attempts fail, return false
-}
-
-// ! Function to ping host
-bool pingHost()
-{
-    Serial.print("Pinging host: " + String(host));
-    Serial.println("...");
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.print("Pinging host: " + String(host));
-    display.println("...");
-    display.display();
-
-    int retries = 0;
-    while (!Ping.ping(host) && retries < maxRetries)
-    {
-        retries++; // Increment retries count
-        Serial.print("Ping failed, retrying ");
-        Serial.print(retries);
-        Serial.print("/");
-        Serial.println(maxRetries);
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.print("Ping failed, retrying ");
-        display.print(retries);
-        display.print("/");
-        display.println(maxRetries);
-        display.display();
-    }
-    if (Ping.ping(host))
-    {
-        Serial.println("Ping successful.");
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("Ping successful.");
-        display.display();
-        return true;
+        http.end(); // End HTTP connection
     }
     else
     {
-        return false;
+        weatherDescription = "null"; // Set weather description to null
+        weatherTempC = 0.0;          // Set weather temperature in Celsius to 0
+        weatherTempF = 0.0;          // Set weather temperature in Fahrenheit to 0
     }
-}
 
-// ! Function to synchronize NTP time
-bool syncNTP()
-{
-    Serial.println("Synchronizing NTP: " + String(ntpServer)); // Print message to serial
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("Synchronizing NTP: " + String(ntpServer)); // Print message to OLED
-    display.display();
-
-    String ntpMessage = "Fetching date and time from NTP server: " + String(ntpServer);
-    Serial.println(ntpMessage); // Print message to serial
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println(ntpMessage); // Print message to OLED
-    display.display();
-
-    struct timeval tv = {0};     // Clear system time
-    settimeofday(&tv, NULL);     // Set system time to zero
-    configTime(0, 0, ntpServer); // Configure time with NTP server
-    struct tm timeinfo;          // Structure to hold time information
-    int retries = 0;             // Initialize retries count
-    while (!getLocalTime(&timeinfo) && retries < maxRetries)
+    if (weatherFetchSuccess) // If weather data was fetched successfully
     {
-        retries++; // Increment retries count
-        Serial.print("Waiting for NTP time sync, retrying ");
-        Serial.print(retries);
-        Serial.print("/");
-        Serial.println(maxRetries);
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.print("Waiting for NTP time sync, retrying ");
-        display.print(retries);
-        display.print("/");
-        display.println(maxRetries);
-        display.display();
-        delay(NTP_SYNC_DELAY_MS); // Wait before next attempt
-    }
-    if (timeinfo.tm_year > (2020 - 1900))
-    {                                                                       // Check if the year is valid
-        char timeStr[64];                                                   // Buffer to hold formatted time string
-        strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo); // Format time string
-        Serial.println(timeStr);                                            // Print formatted time to serial
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println(timeStr); // Print formatted time to OLED
-        display.display();
-        return true; // Return true if NTP sync was successful
+        Serial.println("Weather data fetched successfully."); // Print success message
+        Serial.print("Next weather update at: ");             // Print next weather update time
+        Serial.println(ctime((time_t *)&nextWeatherUpdate));  // Print formatted next weather update time
     }
     else
     {
-        return false;
+        Serial.println("Failed to fetch weather data."); // Print failure message
     }
-}
-
-bool connectAWS() // Function to connect to AWS IoT Core
-{
-    // Configure WiFiClientSecure to use the AWS IoT device credentials
-    net.setCACert(AWS_ROOT_CA);         // Set the AWS Root CA certificate
-    net.setCertificate(AWS_CERT_CRT);   // Set the device certificate
-    net.setPrivateKey(AWS_PRIVATE_KEY); // Set the private key
-
-    // Set the AWS IoT endpoint and port
-    mqttClient.setServer(AWS_IOT_MQTT_SERVER, AWS_IOT_MQTT_PORT);
-
-    Serial.println("Connecting to AWS IoT Core...");
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("Connecting to AWS IoT Core...");
-    display.display();
-
-    int attempt = 0;
-    while (!mqttClient.connect(deviceID.c_str()) && attempt < 3)
-    {
-        attempt++;
-        Serial.print("Attempt ");
-        Serial.print(attempt);
-        Serial.println("/3 failed, retrying...");
-
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.print("Attempt ");
-        display.print(attempt);
-        display.println("/3 failed, retrying...");
-        display.display();
-
-        delay(MQTT_RECONNECT_DELAY_MS); // Delay before retrying
-    }
-
-    if (mqttClient.connected())
-    {
-        Serial.println("Connected to AWS Cloud successfully!");
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("Connected to AWS Cloud successfully!");
-        display.display();
-        return true;
-    }
-    else
-    {
-        Serial.println("Failed to connect to AWS Cloud after 3 attempts.");
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("Failed to connect to AWS Cloud after 3 attempts.");
-        display.display();
-
-        return false;
-    }
-}
-
-// ! Function to read, display, and check DHT data
-void readAndDisplayDHT()
-{
-    float humidity = dht.readHumidity();             // Read humidity
-    float temperature_c = dht.readTemperature();     // Read temperature in Celsius
-    float temperature_f = dht.readTemperature(true); // Read temperature in Fahrenheit
-
-    // Check if any reads failed and exit early (to try again).
-    if (isnan(humidity) || isnan(temperature_c) || isnan(temperature_f))
-    {
-        Serial.println(F("Failed to read from DHT sensor!"));
-        return;
-    }
-
-    // Print to serial port
-    Serial.print(F("Humidity: "));
-    Serial.print(humidity);
-    Serial.print(F("%  "));
-    Serial.print(F("Temperature: "));
-    Serial.print(temperature_c);
-    Serial.print((char)176); // ASCII code for degree symbol
-    Serial.print(F("C "));
-    Serial.print(temperature_f);
-    Serial.print((char)176); // ASCII code for degree symbol
-    Serial.println(F("F"));
-
-    // Print to OLED
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.print(F("Humidity_%: "));
-    display.println(humidity);
-    display.print(F("Temperature_C: "));
-    display.println(temperature_c);
-    display.print(F("Temperature_F: "));
-    display.println(temperature_f);
-    display.display();
-
-    // Check temperature and control LEDs and buzzer
-    if (temperature_f < TEMP_HIGH_THRESHOLD_F)
-    {
-        ledcWrite(greenLedChannel, 255); // Turn on green LED at full brightness
-        ledcWrite(redLedChannel, 0);     // Turn off red LED
-        ledcWrite(buzzerChannel, 0);     // Turn off buzzer
-    }
-    else
-    {
-        ledcWrite(greenLedChannel, 0); // Turn off green LED
-        Serial.println(F("Warning!"));
-        Serial.println(F("High Temperature!")); // Print warning to serial port
-        Serial.print(F("Temperature: "));
-        Serial.print(temperature_f);
-        Serial.print((char)176); // ASCII code for degree symbol
-        Serial.println(F("F"));
-
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println(F("Warning!"));
-        display.println(F("High Temp!"));
-        display.print(F("Temp: "));
-        display.print(temperature_f);
-        display.print((char)176); // ASCII code for degree symbol
-        display.println(F("F"));
-        display.display();
-
-        buzzerAndBlinkAlarm(); // Trigger alarm if temperature exceeds threshold
-    }
-}
-
-// ! Function to read and display tilt sensor data
-bool readAndDisplayTiltSensor()
-{
-    int tiltState = digitalRead(TILT_PIN); // Read the state of the tilt sensor
-    display.setCursor(0, 32);              // Set cursor position for tilt sensor status
-    display.print("Tilt Status: ");
-    display.println(tiltState ? "Yes" : "No"); // Display tilt status on OLED
-    display.display();                         // Update OLED display
-    return tiltState;                          // Return the tilt sensor state
-}
-
-// ! Function to read and display motion sensor data
-bool readAndDisplayMotionSensor()
-{
-    int motionState = digitalRead(MOTION_PIN); // Read the state of the motion sensor
-    display.setCursor(0, 42);                  // Set cursor position for motion sensor status
-    display.print("Motion Status: ");
-    display.println(motionState ? "Yes" : "No"); // Display motion status on OLED
-    display.display();                           // Update OLED display
-    return motionState;                          // Return the motion sensor state
-}
-
-// ! Function to read and display flame sensor data
-bool readAndDisplayFlameSensor()
-{
-    int flameState = digitalRead(FLAME_PIN); // Read the state of the flame sensor
-    display.setCursor(0, 52);                // Set cursor position for flame sensor status
-    display.print("Flame Status: ");
-    display.println(flameState ? "Yes" : "No"); // Display flame status on OLED
-    display.display();                          // Update OLED display
-    return flameState;                          // Return the flame sensor state
-}
-
-// Function to publish MQTT messages
-void mqttPublishMessage(float humidity, float temperature_c, float temperature_f, bool tiltStatus, bool motionStatus, bool flameStatus)
-{
-    if (mqttClient.connected())
-    {
-        // Fetch the current time
-        time_t unixTime = time(nullptr); // Get the current time as Unix time
-
-        // Check if time is valid
-        if (unixTime == -1)
-        {
-            Serial.println("Failed to obtain time");
-            return;
-        }
-
-        // Create a JSON document
-        StaticJsonDocument<512> doc;
-
-        // Populate document
-        doc["timeStamp"] = unixTime;                        // Add timestamp to JSON document
-        doc["deviceModel"] = "ESP32";                       // Add device model to JSON document
-        doc["owner"] = "Jun Wen";                           // Add owner to JSON document
-        doc["group"] = "Group_1";                           // Add group to JSON document
-        doc["deviceID"] = String(ESP.getEfuseMac(), HEX);   // Add device ID to JSON document
-        JsonObject data = doc.createNestedObject("data");   // Create a nested object for data
-        data["temp_c"] = round(temperature_c);              // Add temperature in Celsius to JSON document
-        data["temp_f"] = round(temperature_f);              // Add temperature in Fahrenheit to JSON document
-        data["humidity_%"] = humidity;                      // Add humidity to JSON document
-        data["tiltStatus"] = tiltStatus ? "Yes" : "No";     // Add tilt status to JSON document
-        data["motionStatus"] = motionStatus ? "Yes" : "No"; // Add motion status to JSON document
-        data["flameStatus"] = flameStatus ? "Yes" : "No";   // Add flame status to JSON document
-
-        String jsonString;                    // Create a string to hold the JSON data
-        serializeJson(doc, jsonString);       // Serialize the JSON document to a string
-        Serial.print("Publishing message: "); // Print the message
-        Serial.println(jsonString);           // Print the JSON data
-
-        // Determine buffer size
-        size_t jsonSize = measureJson(doc) + 1; // +1 for null terminator
-        Serial.print("Calculated JSON buffer size: ");
-        Serial.println(jsonSize); // Print the buffer size
-
-        if (!mqttClient.publish(AWS_IOT_PUBLISH_TOPIC.c_str(), jsonString.c_str()))
-        {
-            Serial.println("Publish failed"); // Print publish failure message
-        }
-        else
-        {
-            Serial.println("Publish succeeded"); // Print publish success message
-        }
-    }
-}
-
-// ! Function to trigger alarm
-void buzzerAndBlinkAlarm()
-{
-    unsigned long startTime = millis(); // Record the start time
-
-    while (millis() - startTime < LOOP_DELAY_MS) // Continue the alarm during the loop time
-    {
-        // Play high frequency and turn on Red LED
-        ledcWriteTone(buzzerChannel, ALARM_HIGH_FREQUENCY);
-        ledcWrite(buzzerChannel, buzzerDutyCycle); // Set the duty cycle for lower volume
-        ledcWrite(redLedChannel, 255);             // Turn on Red LED
-        delay(ALARM_TONE_DURATION_MS);
-
-        // Play low frequency and turn off Red LED
-        ledcWriteTone(buzzerChannel, ALARM_LOW_FREQUENCY);
-        ledcWrite(buzzerChannel, buzzerDutyCycle); // Set the duty cycle for lower volume
-        ledcWrite(redLedChannel, 0);               // Turn off Red LED
-        delay(ALARM_TONE_DURATION_MS);
-    }
-
-    // Turn off the Buzzer
-    ledcWriteTone(buzzerChannel, 0);
 }
